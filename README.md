@@ -1,2 +1,2 @@
-# ziphyr
+# Ziphyr
 OpenComputers github interaction
