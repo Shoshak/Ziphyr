@@ -63,11 +63,9 @@ function gh(rep_name, auth_token, folder)  -- Main class
     this.rep_name = rep_name  -- Raw repository name
     this.folder = folder  -- Full path to folder if supplied
     private = {}
-    if auth_token == nil then  -- Setting headers with github token
-        private._headers = nil  -- Technically the script can work without tokens, so we give this option
-    else
-        private._headers = {["Authorization"] = "Token "..auth_token}
-    end
+    if auth_token then  -- Setting headers with github token
+        private._headers = {["Authorization"] = "Token "..auth_token}  
+    end -- Technically the script can work without tokens, so we give this option
     private._folder_path = ""  -- Path to local folder
     private._contents_link = ""  -- Link to api contents folder
     private._contents = {}  -- All github repository contents
