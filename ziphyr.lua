@@ -233,7 +233,7 @@ end
 local function ziphyr_help()
     print("Ziphyr - github interaction tool")
     print("To clone: ziphyr clone [--dir=<directory to clone>] [rep list]")
-    print("To pull: ziphyr pull [--dir=<directory to pull>] [rep list]")
+    print("To pull: ziphyr pull [--dir=<directory to pull>] [rep]")
 end
 
 local function main(args, options)
@@ -243,7 +243,7 @@ local function main(args, options)
     elseif #args < 2 then
         print("No arguments supplied!")
     else
-        if options["d"] or options["dir"] then
+        if options["d"] == true or options["dir"] == true then
             options["dir"] = shell.getWorkingDirectory()
         end
         if args[1] == "clone" then
