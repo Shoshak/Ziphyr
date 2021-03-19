@@ -17,7 +17,7 @@
 ziphyr clone KoshakLoL/Ziphyr - for cloning the repository in [CURRENT_FOLDER]/[REP_NAME]
 ziphyr pull KoshakLoL/Ziphyr - for pulling the repository in [CURRENT_FOLDER]/[REP_NAME]
 ziphyr clone/pull -d KoshakLoL/Ziphyr - for cloning/pulling the repository in [CURRENT_FOLDER]
-ziphyr clone/pull --dir=./[SOME_FOLDER] KoshakLoL/Ziphyr - for cloning/pulling the repository in [SOME_FOLDER]
+ziphyr clone/pull --dir=[SOME_FOLDER] KoshakLoL/Ziphyr - for cloning/pulling the repository in [SOME_FOLDER]
 ```
 
 # License:
