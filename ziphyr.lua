@@ -74,10 +74,11 @@ local function file_to_hash(file_path)  -- Returns file modification date conver
     return sha.hex(tostring(filesystem.lastModified(file_path))..":"..file_path)
 end
 
-function gh(rep_name, auth_token, folder)  -- Main class
+function gh(mode, rep_name, auth_token, folder, ver)  -- Main class
     this = {}
     this.rep_name = rep_name  -- Raw repository name
     this.folder = folder  -- Full path to folder if supplied
+    this.ver = ver  -- For what commit/release to download
     private = {}
     if auth_token then  -- Setting headers with github token
         private._headers = {["Authorization"] = "Token "..auth_token}  
@@ -90,15 +91,21 @@ function gh(rep_name, auth_token, folder)  -- Main class
     private._local_hashes = {}  -- Hashes from local repository contents
     private._rep_private = false  -- Checks if the rep is private
     private._clone_token = ""  -- Clone token for private repositories
-    private._default_branch = ""  -- Default branch (later we add branches support)
 
     function private._get_repo()  -- Get repository info
+        if mode:lower() == "pull" then  -- If pull
+            local f = io.open(filesystem.concat(private._info_folder, "repository_info"), "r")
+            this.rep_name = f:read("*l")
+            this.ver = f:read("*l")
+            f:close()
+        end
         local rep_link = "https://api.github.com/repos/"..this.rep_name
         print("Getting info about "..rep_link)
         local handle = get_handle(rep_link, private._headers)
         local rep_info = get_json(get_response(handle))
-        private._contents_link = rep_info.contents_url:sub(0, -9)  -- Removing ?ref=master or something like that
-        private._default_branch = rep_info.default_branch
+        if not this.ver then  -- If no version specified - get the default branch
+            this.ver = rep_info.default_branch
+        end
         private._rep_private = rep_info.private
     end
 
@@ -114,31 +121,32 @@ function gh(rep_name, auth_token, folder)  -- Main class
         else
             private._folder_path = filesystem.concat(shell.getWorkingDirectory(), this.rep_name:sub(this.rep_name:find("/")+1, this.rep_name:len()))
         end
-        private._hash_folder = filesystem.concat(private._folder_path, ".ziphyr")  -- Create hashes folder
+        private._info_folder = filesystem.concat(private._folder_path, ".ziphyr")  -- Create hashes folder
         filesystem.makeDirectory(private._folder_path)
-        filesystem.makeDirectory(private._hash_folder)
+        filesystem.makeDirectory(private._info_folder)
     end
 
-    function private._get_contents(link)  -- Gets repository content
+    function private._get_contents(tree_id, prev_path)  -- Gets repository content
+        local link = "https://api.github.com/repos/"..this.rep_name.."/git/trees/"..tree_id
         local handle = get_handle(link, private._headers)
-        local con_info = get_json(get_response(handle))
+        local con_info = get_json(get_response(handle)).tree
         for count=1, #con_info do  -- For current repository folder
             local element = con_info[count]
             print("Indexing: ", element.path)
-            if element.type == "file" then
-                private._contents[element.sha] = element.path  -- Add to contents with key of sha hash
+            if element.type == "blob" then
+                private._contents[element.sha] = prev_path..element.path.."/"  -- Add to contents with key of sha hash
             else  -- Calling a recursive function:
                 print("Traversing to "..element.path)
                 filesystem.makeDirectory(filesystem.concat(private._folder_path, element.path))
-                private._get_contents(link.."/"..element.name:gsub("%s", "%%20")) -- Thanks to people who put spaces in filenames
+                private._get_contents(element.sha, prev_path..element.path.."/")
                 print("Traversing back...")
             end
         end
     end
 
-    function private._store_info()  -- Stores hash info
-        local f = io.open(filesystem.concat(private._hash_folder, "hashes"), "w")
-        local f_l = io.open(filesystem.concat(private._hash_folder, "local_hashes"), "w")
+    function private._store_info()  -- Stores info
+        local f = io.open(filesystem.concat(private._info_folder, "hashes"), "w")
+        local f_l = io.open(filesystem.concat(private._info_folder, "local_hashes"), "w")
         for k, v in pairs(private._contents) do
             print("Storing global sha hash for: "..v)
             f:write(k.." "..v.."\n")
@@ -147,11 +155,18 @@ function gh(rep_name, auth_token, folder)  -- Main class
         end
         f:close()
         f_l:close()
+
+        local f_r_path = filesystem.concat(private._info_folder, "repository_info")
+        if not filesystem.exists(f_r_path) then
+            local f = io.open(f_r_path, "w")
+            f:write(this.rep_name.."\n"..this.ver)
+            f:close()
+        end
     end
 
     function private._read_info()  -- Reads local hash info
-        local path = filesystem.concat(private._hash_folder, "hashes")
-        local lcl_path = filesystem.concat(private._hash_folder, "local_hashes")
+        local path = filesystem.concat(private._info_folder, "hashes")
+        local lcl_path = filesystem.concat(private._info_folder, "local_hashes")
         if filesystem.exists(path) and filesystem.exists(lcl_path) then
             local f = io.lines(path)
             for line in f do
@@ -193,47 +208,51 @@ function gh(rep_name, auth_token, folder)  -- Main class
     end
 
     function private._download_content()  -- Download content from a query
-        for _, link in pairs(private._download_query) do
-            print("Downloading: "..link)
-            local raw_link = "https://raw.githubusercontent.com/"..this.rep_name.."/"..private._default_branch.."/"..link:gsub("%s", "%%20")
-            if private._rep_private then  -- If the rep is private then we add token to the link
-                raw_link = raw_link.."?token="..private._get_token()
-                handle = get_handle(raw_link, private._headers)
+        for _, file_path in pairs(private._download_query) do
+            print("Downloading: "..file_path)
+            local raw_file_path = "https://raw.githubusercontent.com/"..this.rep_name.."/"..this.ver.."/"..file_path:gsub("%s", "%%20"):sub(0, -2)
+            if private._rep_private then  -- If the rep is private then we add token to the file_path
+                raw_file_path = raw_file_path.."?token="..private._get_token()
+                handle = get_handle(raw_file_path, private._headers)
             else
-                handle = get_handle(raw_link)  -- We should send the token only if necessary
+                handle = get_handle(raw_file_path)  -- We should send the token only if necessary
             end
-            get_response(handle, filesystem.concat(private._folder_path, link))
+            get_response(handle, filesystem.concat(private._folder_path, file_path))
         end
     end
 
     function this.clone_hub()  -- Sequence to clone
-        private._get_repo()
         private._get_git_folder()
+        private._get_repo()
         print("Cloning "..this.rep_name.." in "..private._folder_path)
-        private._get_contents(private._contents_link)
+        private._get_contents(this.ver, "")
         private._download_query = private._contents
         private._download_content()
         private._store_info()
     end
 
     function this.pull_hub()  -- Sequence to pull
-        private._get_repo()
         private._get_git_folder()
+        private._get_repo()
         print("Pulling "..this.rep_name.." in "..private._folder_path)
-        private._get_contents(private._contents_link)
+        private._get_contents(this.ver, "")
         private._read_info()
         private._compare_info()
         private._download_content()
         private._store_info()
     end
 
-    return this
+    if mode:lower() == "clone" then
+        this.clone_hub()
+    elseif mode:lower() == "pull" then
+        this.pull_hub()
+    end
 end
 
 local function ziphyr_help()
     print("Ziphyr - github interaction tool")
-    print("To clone: ziphyr clone [--dir=<directory to clone>] [rep list]")
-    print("To pull: ziphyr pull [--dir=<directory to pull>] [rep]")
+    print("To clone: ziphyr clone [--dir=<directory to clone>] [--ver=<what version to clone>] [rep list]")
+    print("To pull: ziphyr pull [directory of an existing repository]")
 end
 
 local function main(args, options)
@@ -246,14 +265,15 @@ local function main(args, options)
         if options["d"] == true or options["dir"] == true then
             options["dir"] = shell.getWorkingDirectory()
         end
+        if type(options["ver"]) ~= "string" then
+            options["ver"] = nil
+        end
         if args[1] == "clone" then
             for i=2, #args do
-                local git_thing = gh(args[i], token, options["dir"])
-                git_thing.clone_hub()
+                gh(args[1], args[i], token, options["dir"], options["ver"]) -- Mode, repository, token, directory, version
             end
         elseif args[1] == "pull" then
-            local git_thing = gh(args[2], token, options["dir"])
-            git_thing.pull_hub()
+            gh(args[1], nil, token, args[2], nil) -- Mode, token, folder_path
         end
     end
 end
