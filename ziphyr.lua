@@ -1,5 +1,5 @@
 -- Ziphyr - OpenComputers github interaction
--- Copyright (C) 2021 KoshakLoL
+-- Copyright (C) 2021 Shoshak
 
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
